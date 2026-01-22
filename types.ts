@@ -20,7 +20,7 @@ export interface Account {
   initialBalance: number;
   currentBalance: number; // Calculated
   color: string;
-  pixKey?: string; // Nova propriedade para chave PIX da conta
+  pixKey?: string; 
 }
 
 export interface CreditCard {
@@ -41,13 +41,13 @@ export interface Transaction {
   date: string; // ISO Date string YYYY-MM-DD
   type: TransactionType;
   categoryId: string;
-  accountId?: string; // If null, might be a credit card expense before payment
-  cardId?: string; // If present, belongs to a credit card invoice
+  accountId?: string; 
+  cardId?: string; 
   isPaid: boolean;
   installmentCurrent?: number;
   installmentTotal?: number;
-  relatedTransactionId?: string; // For installments grouping
-  relatedRecurringId?: string; // Links generated transaction to its config
+  relatedTransactionId?: string; 
+  relatedRecurringId?: string; 
 }
 
 export interface RecurringTransaction {
@@ -69,6 +69,11 @@ export interface Category {
   icon: string;
   color: string;
   type: TransactionType;
+}
+
+export interface UserSettings {
+  notifyClosingDays: number;
+  notifyDueDays: number;
 }
 
 export interface DashboardStats {

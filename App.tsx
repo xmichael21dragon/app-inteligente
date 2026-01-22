@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { LayoutDashboard, Wallet, CreditCard, PieChart, Plus, Settings, PiggyBank, LogOut, Crown, Repeat, Globe, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, Wallet, CreditCard, PieChart, Plus, Settings, PiggyBank, LogOut, Crown, Repeat, Globe, Sun, Moon, BellRing } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Reports from './components/Reports';
 import CreditCards from './components/CreditCards';
@@ -12,7 +13,7 @@ import RecurringModal from './components/RecurringModal';
 import SmartLogo from './components/SmartLogo';
 import AdBanner from './components/AdBanner';
 import { dataService, supabase } from './services/store';
-import { Account, Transaction, CreditCard as CreditCardType, Category, RecurringTransaction } from './types';
+import { Account, Transaction, CreditCard as CreditCardType, Category, RecurringTransaction, UserSettings } from './types';
 import { useLanguage } from './contexts/LanguageContext';
 import { useTheme } from './contexts/ThemeContext';
 
@@ -29,6 +30,7 @@ const App: React.FC = () => {
   const { theme, setTheme } = useTheme();
   const [session, setSession] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   
   const [currentView, setCurrentView] = useState<View>(View.DASHBOARD);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -47,6 +49,8 @@ const App: React.FC = () => {
   const [cards, setCards] = useState<CreditCardType[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [recurringList, setRecurringList] = useState<RecurringTransaction[]>([]); 
+  
+  const [settings, setSettings] = useState<UserSettings>(dataService.getNotificationSettings());
 
   useEffect(() => {
     const hydrate = async () => {
@@ -117,6 +121,7 @@ const App: React.FC = () => {
   };
 
   const refreshData = async () => {
+    setRefreshing(true);
     try {
       const [accs, txs, cds, cats] = await Promise.all([
         dataService.fetchAccounts(false),
@@ -141,10 +146,15 @@ const App: React.FC = () => {
       const loader = document.getElementById('app-loader');
       if (loader) loader.style.display = 'none';
     } catch (error) {
-      setLoading(false);
-      const loader = document.getElementById('app-loader');
-      if (loader) loader.style.display = 'none';
+      console.error("Refresh Error", error);
+    } finally {
+      setRefreshing(false);
     }
+  };
+
+  const handleSaveSettings = (newSettings: UserSettings) => {
+    setSettings(newSettings);
+    dataService.saveNotificationSettings(newSettings);
   };
 
   const handleSaveTransaction = async (t: Omit<Transaction, 'id'> | Transaction) => {
@@ -202,7 +212,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans flex flex-col md:flex-row transition-colors duration-500">
-      {/* SIDEBAR DESKTOP */}
       <aside className="hidden md:flex flex-col w-20 lg:w-64 h-screen sticky top-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4 lg:p-6 z-40 shadow-sm transition-all duration-500">
         <div className="flex items-center justify-center lg:justify-start lg:space-x-4 mb-12 mt-2 group">
           <SmartLogo size="sm" />
@@ -244,10 +253,9 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* pb-32 garante que o conteúdo não fique escondido pela barra inferior */}
         <main className={`w-full max-w-7xl mx-auto p-4 md:p-8 lg:p-12 pb-32 md:pb-24`}>
-          {currentView === View.DASHBOARD && <Dashboard accounts={accounts} transactions={transactions} cards={cards} currentDate={currentDate} onPrevMonth={() => { const d = new Date(currentDate); d.setMonth(d.getMonth()-1); setCurrentDate(d); }} onNextMonth={() => { const d = new Date(currentDate); d.setMonth(d.getMonth()+1); setCurrentDate(d); }} onAddTransaction={() => { setEditingTransaction(null); setIsModalOpen(true); }} onSaveAccount={async (a) => { await dataService.upsertAccount(a); refreshData(); }} onDeleteAccount={async (id) => { await dataService.deleteAccount(id); refreshData(); }} onEditTransaction={handleEditTransaction} isPremium={isPremium} />}
-          {currentView === View.CARDS && <CreditCards cards={cards} transactions={transactions} accounts={accounts} onSaveCard={async (c) => { await dataService.upsertCard(c); refreshData(); }} onDeleteCard={async (id) => { await dataService.deleteCard(id); refreshData(); }} onRefreshData={refreshData} isPremium={isPremium} onUpgrade={() => setIsPremiumModalOpen(true)} />}
+          {currentView === View.DASHBOARD && <Dashboard accounts={accounts} transactions={transactions} cards={cards} currentDate={currentDate} onPrevMonth={() => { const d = new Date(currentDate); d.setMonth(d.getMonth()-1); setCurrentDate(d); }} onNextMonth={() => { const d = new Date(currentDate); d.setMonth(d.getMonth()+1); setCurrentDate(d); }} onAddTransaction={() => { setEditingTransaction(null); setIsModalOpen(true); }} onSaveAccount={async (a) => { await dataService.upsertAccount(a); refreshData(); }} onDeleteAccount={async (id) => { await dataService.deleteAccount(id); refreshData(); }} onEditTransaction={handleEditTransaction} isPremium={isPremium} onRefresh={refreshData} isRefreshing={refreshing} />}
+          {currentView === View.CARDS && <CreditCards cards={cards} transactions={transactions} accounts={accounts} onSaveCard={async (c) => { await dataService.upsertCard(c); refreshData(); }} onDeleteCard={async (id) => { await dataService.deleteCard(id); refreshData(); }} onRefreshData={refreshData} isPremium={isPremium} onUpgrade={() => setIsPremiumModalOpen(true)} currentMonthDate={currentDate} settings={settings} />}
           {currentView === View.INVESTMENTS && <Investments accounts={accounts} onSaveAccount={async (a) => { await dataService.upsertAccount(a); refreshData(); }} onDeleteAccount={async (id) => { await dataService.deleteAccount(id); refreshData(); }} />}
           {currentView === View.REPORTS && <Reports transactions={transactions} categories={categories} accounts={accounts} currentDate={currentDate} onPrevMonth={() => { const d = new Date(currentDate); d.setMonth(d.getMonth()-1); setCurrentDate(d); }} onNextMonth={() => { const d = new Date(currentDate); d.setMonth(d.getMonth()+1); setCurrentDate(d); }} isPremium={isPremium} onUpgrade={() => setIsPremiumModalOpen(true)} />}
           
@@ -271,6 +279,43 @@ const App: React.FC = () => {
                       </div>
                   </div>
                </div>
+
+               <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 space-y-6">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl"><BellRing size={24} /></div>
+                    <div>
+                        <h3 className="font-black text-slate-800 dark:text-white">Antecedência de Alertas</h3>
+                        <p className="text-xs text-slate-500 font-medium">Configure quantos dias antes você deseja ser avisado.</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fechamento de Fatura</label>
+                        <div className="flex items-center gap-3">
+                           <input 
+                              type="range" min="1" max="15" 
+                              value={settings.notifyClosingDays} 
+                              onChange={(e) => handleSaveSettings({...settings, notifyClosingDays: parseInt(e.target.value)})}
+                              className="flex-1 accent-accent"
+                           />
+                           <span className="w-8 text-center font-black text-accent">{settings.notifyClosingDays}d</span>
+                        </div>
+                     </div>
+                     <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento de Fatura</label>
+                        <div className="flex items-center gap-3">
+                           <input 
+                              type="range" min="1" max="15" 
+                              value={settings.notifyDueDays} 
+                              onChange={(e) => handleSaveSettings({...settings, notifyDueDays: parseInt(e.target.value)})}
+                              className="flex-1 accent-accent"
+                           />
+                           <span className="w-8 text-center font-black text-accent">{settings.notifyDueDays}d</span>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+
                <div className="space-y-3">
                   <button onClick={() => setIsRecurringModalOpen(true)} className="w-full p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl flex items-center justify-between text-sm font-bold">
                     <div className="flex items-center gap-3"><Repeat size={20} className="text-indigo-500" /> {t('nav.recurring')}</div>
@@ -290,24 +335,19 @@ const App: React.FC = () => {
         </main>
       </div>
 
-      {/* BARRA DE NAVEGAÇÃO MOBILE - FIXED BOTTOM */}
       <nav className="fixed bottom-0 left-0 right-0 z-[100] bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 md:hidden flex items-center justify-around h-20 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
         <MobileNavItem view={View.DASHBOARD} icon={LayoutDashboard} label={t('nav.dashboard')} />
         <MobileNavItem view={View.CARDS} icon={CreditCard} label={t('nav.cards')} />
-        
-        {/* Botão de Adição Centralizado */}
         <button 
           onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }} 
           className="relative -top-8 bg-accent text-white p-5 rounded-full shadow-2xl shadow-accent/40 active:scale-90 transition-transform flex items-center justify-center border-4 border-slate-50 dark:border-slate-950"
         >
           <Plus size={32} strokeWidth={3} />
         </button>
-
         <MobileNavItem view={View.INVESTMENTS} icon={PiggyBank} label={t('nav.investments')} />
         <MobileNavItem view={View.REPORTS} icon={PieChart} label={t('nav.reports')} />
       </nav>
 
-      {/* Botão de Adição no Desktop */}
       <button onClick={() => { setEditingTransaction(null); setIsModalOpen(true); }} className="hidden md:flex fixed right-8 bottom-8 z-40 bg-accent text-white p-5 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all shadow-accent/30">
         <Plus size={32} />
       </button>

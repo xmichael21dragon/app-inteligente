@@ -1,5 +1,5 @@
 
-import { Account, AccountType, CreditCard, Transaction, TransactionType, Category, RecurringTransaction } from '../types';
+import { Account, AccountType, CreditCard, Transaction, TransactionType, Category, RecurringTransaction, UserSettings } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
 
@@ -24,12 +24,11 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 class DataService {
   
-  // Cache com proteção básica contra leitura simples (Obfuscação)
   private getCache(key: string) {
     try {
       const encrypted = localStorage.getItem(`c_sec_${key}`);
       if (!encrypted) return null;
-      const decoded = atob(encrypted); // Decodificação Base64
+      const decoded = atob(encrypted);
       return JSON.parse(decoded);
     } catch (e) {
       return null;
@@ -39,7 +38,7 @@ class DataService {
   private setCache(key: string, data: any) {
     try {
       const stringData = JSON.stringify(data);
-      const encoded = btoa(stringData); // Codificação Base64 básica
+      const encoded = btoa(stringData);
       localStorage.setItem(`c_sec_${key}`, encoded);
     } catch (e) {
       console.error("Secure Cache Write Error", e);
@@ -66,6 +65,15 @@ class DataService {
     }
   }
 
+  getNotificationSettings(): UserSettings {
+    const saved = this.getCache('notification_settings');
+    return saved || { notifyClosingDays: 3, notifyDueDays: 5 };
+  }
+
+  saveNotificationSettings(settings: UserSettings): void {
+    this.setCache('notification_settings', settings);
+  }
+
   async fetchAccounts(useCache = true): Promise<Account[]> {
     if (useCache) {
       const cached = this.getCache('accounts');
@@ -74,10 +82,8 @@ class DataService {
     try {
       const userId = await this.getCurrentUserId();
       if (!userId) return [];
-
       const { data, error } = await supabase.from('accounts').select('*').eq('user_id', userId).order('name');
       if (error) throw error;
-      
       const mapped = (data || []).map((row: any) => ({
         id: row.id,
         name: row.name,
@@ -103,10 +109,8 @@ class DataService {
     try {
       const userId = await this.getCurrentUserId();
       if (!userId) return [];
-
       const { data, error } = await supabase.from('transactions').select('*').eq('user_id', userId).order('date', { ascending: false });
       if (error) throw error;
-
       const mapped = (data || []).map((row: any) => ({
         id: row.id,
         description: row.description,
@@ -133,11 +137,10 @@ class DataService {
   async upsertTransactions(transactions: Transaction[]): Promise<boolean> {
     const userId = await this.getCurrentUserId();
     if (!userId) return false;
-
     const dbTransactions = transactions.map(t => ({
       id: t.id,
       user_id: userId,
-      description: t.description.substring(0, 100), // Sanitização básica de tamanho
+      description: t.description.substring(0, 100),
       amount: t.amount,
       date: t.date,
       type: t.type,
@@ -146,16 +149,14 @@ class DataService {
       card_id: t.cardId || null,
       is_paid: t.isPaid,
       installment_current: t.installmentCurrent || null,
-      // Fixed: Property 'installment_total' does not exist on type 'Transaction'. Did you mean 'installmentTotal'?
       installment_total: t.installmentTotal || null,
       related_transaction_id: t.relatedTransactionId || null,
       related_recurring_id: t.relatedRecurringId || null,
     }));
-
     const { error } = await supabase.from('transactions').upsert(dbTransactions);
     if (!error) {
-        // Limpar cache local para forçar refresh
-        localStorage.removeItem('c_sec_transactions');
+      localStorage.removeItem('c_sec_transactions');
+      localStorage.removeItem('c_sec_accounts'); // Clear accounts too since balance might change
     }
     return !error;
   }
@@ -164,7 +165,10 @@ class DataService {
     const userId = await this.getCurrentUserId();
     if (!userId) return false;
     const { error } = await supabase.from('transactions').delete().eq('id', id).eq('user_id', userId);
-    if (!error) localStorage.removeItem('c_sec_transactions');
+    if (!error) {
+      localStorage.removeItem('c_sec_transactions');
+      localStorage.removeItem('c_sec_accounts');
+    }
     return !error;
   }
 
@@ -220,16 +224,21 @@ class DataService {
     return !error;
   }
 
-  // Implementation of payCardInvoice to fix error in CreditCards.tsx
-  async payCardInvoice(cardId: string, accountId: string, amount: number, cardName: string): Promise<boolean> {
+  async payCardInvoice(cardId: string, accountId: string, amount: number, cardName: string, selectedMonthDate: Date): Promise<boolean> {
     const userId = await this.getCurrentUserId();
     if (!userId) return false;
 
-    // Create a transaction for the payment from the selected account
+    const month = selectedMonthDate.getMonth() + 1;
+    const year = selectedMonthDate.getFullYear();
+    const monthStr = String(month).padStart(2, '0');
+    
+    const startDate = `${year}-${monthStr}-01`;
+    const endDate = `${year}-${monthStr}-31`;
+
     const paymentTx: any = {
       id: uuidv4(),
       user_id: userId,
-      description: `PAGTO FATURA: ${cardName}`,
+      description: `PAGTO FATURA: ${cardName} (${monthStr}/${year})`,
       amount: amount,
       date: new Date().toISOString().split('T')[0],
       type: TransactionType.EXPENSE,
@@ -241,13 +250,14 @@ class DataService {
     const { error: txError } = await supabase.from('transactions').insert(paymentTx);
     if (txError) return false;
 
-    // Mark all transactions for this card as paid
     const { error: updateError } = await supabase
       .from('transactions')
       .update({ is_paid: true })
       .eq('user_id', userId)
       .eq('card_id', cardId)
-      .eq('is_paid', false);
+      .eq('is_paid', false)
+      .gte('date', startDate)
+      .lte('date', endDate);
 
     if (!updateError) {
       localStorage.removeItem('c_sec_transactions');
@@ -256,7 +266,6 @@ class DataService {
     return !updateError;
   }
 
-  // Implementation of recurring transactions methods to fix errors in App.tsx
   fetchRecurringConfigs(): RecurringTransaction[] {
     return this.getCache('recurring_configs') || [];
   }
@@ -264,11 +273,8 @@ class DataService {
   saveRecurringConfig(config: RecurringTransaction): void {
     const configs = this.fetchRecurringConfigs();
     const index = configs.findIndex(c => c.id === config.id);
-    if (index >= 0) {
-      configs[index] = config;
-    } else {
-      configs.push(config);
-    }
+    if (index >= 0) configs[index] = config;
+    else configs.push(config);
     this.setCache('recurring_configs', configs);
   }
 
@@ -281,21 +287,17 @@ class DataService {
   async processRecurringTransactions(txs: Transaction[], configs: RecurringTransaction[]): Promise<Transaction[]> {
     const userId = await this.getCurrentUserId();
     if (!userId) return [];
-
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
     const currentYear = now.getFullYear();
     const newTxs: Transaction[] = [];
-
     for (const config of configs) {
       if (!config.active) continue;
-
       const alreadyExists = txs.some(t => 
         t.relatedRecurringId === config.id && 
         new Date(t.date).getMonth() + 1 === currentMonth && 
         new Date(t.date).getFullYear() === currentYear
       );
-
       if (!alreadyExists) {
         const dateStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(config.dayOfMonth).padStart(2, '0')}`;
         newTxs.push({
@@ -313,14 +315,10 @@ class DataService {
         });
       }
     }
-
-    if (newTxs.length > 0) {
-      await this.upsertTransactions(newTxs);
-    }
+    if (newTxs.length > 0) await this.upsertTransactions(newTxs);
     return newTxs;
   }
 
-  // Implementation of account methods to fix errors in App.tsx
   async upsertAccount(account: Account): Promise<boolean> {
     const userId = await this.getCurrentUserId();
     if (!userId) return false;
@@ -345,7 +343,6 @@ class DataService {
     return !error;
   }
 
-  // Implementation of category methods to fix errors in App.tsx
   async upsertCategory(category: Category): Promise<boolean> {
     const userId = await this.getCurrentUserId();
     if (!userId) return false;
@@ -361,7 +358,6 @@ class DataService {
     return !error;
   }
 
-  // Implementation of requestActivation to fix error in PremiumModal.tsx
   async requestActivation(pixId: string): Promise<boolean> {
     const userId = await this.getCurrentUserId();
     if (!userId) return false;
@@ -373,7 +369,6 @@ class DataService {
     return !error;
   }
 
-  // Métodos auxiliares permanecem com a mesma lógica mas protegidos
   calculateBalances(accounts: Account[], transactions: Transaction[]): Account[] {
     const accountMap = new Map(accounts.map(a => [a.id, { ...a, currentBalance: a.initialBalance }]));
     transactions.forEach(t => {
@@ -407,6 +402,7 @@ class DataService {
           amount: finalAmount,
           installmentCurrent: i + 1,
           relatedTransactionId: baseId,
+          installmentTotal: t.installmentTotal
         } as Transaction);
       }
     } else {
@@ -422,7 +418,6 @@ class DataService {
     }
     try {
       const userId = await this.getCurrentUserId();
-      // Categorias podem ser globais ou do usuário, vamos buscar ambas
       const { data, error } = await supabase.from('categories').select('*').or(`user_id.is.null,user_id.eq.${userId}`).order('name');
       if (error) return this.getCache('categories') || [];
       const mapped = (data || []).map((row: any) => ({

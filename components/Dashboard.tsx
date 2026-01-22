@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Account, Transaction, CreditCard, TransactionType, AccountType } from '../types';
-import { Eye, EyeOff, TrendingUp, TrendingDown, CreditCard as CardIcon, ChevronLeft, ChevronRight, Wallet, PiggyBank } from 'lucide-react';
+import { Eye, EyeOff, TrendingUp, TrendingDown, CreditCard as CardIcon, ChevronLeft, ChevronRight, Wallet, PiggyBank, RefreshCw } from 'lucide-react';
 import AccountModal from './AccountModal';
 import { useLanguage } from '../contexts/LanguageContext';
 import SmartLogo from './SmartLogo';
@@ -19,6 +19,8 @@ interface DashboardProps {
   onDeleteAccount: (accountId: string) => void;
   onEditTransaction: (transaction: Transaction) => void;
   isPremium?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -31,7 +33,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   onSaveAccount,
   onDeleteAccount,
   onEditTransaction,
-  isPremium = false
+  isPremium = false,
+  onRefresh,
+  isRefreshing = false
 }) => {
   const { t, locale, fCurrency } = useLanguage();
   const [showValues, setShowValues] = React.useState(true);
@@ -95,9 +99,18 @@ const Dashboard: React.FC<DashboardProps> = ({
                   {formatValue(monthlyResult)}
               </h2>
             </div>
-            <button onClick={() => setShowValues(!showValues)} className="bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-slate-400 hover:text-accent transition-all">
-              {showValues ? <Eye size={22} /> : <EyeOff size={22} />}
-            </button>
+            <div className="flex items-center gap-2">
+                <button 
+                  onClick={onRefresh} 
+                  disabled={isRefreshing}
+                  className={`bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-slate-400 hover:text-accent transition-all ${isRefreshing ? 'animate-spin' : ''}`}
+                >
+                  <RefreshCw size={22} />
+                </button>
+                <button onClick={() => setShowValues(!showValues)} className="bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-slate-400 hover:text-accent transition-all">
+                  {showValues ? <Eye size={22} /> : <EyeOff size={22} />}
+                </button>
+            </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-800 p-8">
@@ -121,12 +134,15 @@ const Dashboard: React.FC<DashboardProps> = ({
           {!isPremium && <AdBanner className="my-6" />}
 
           <div>
-            <h3 className="text-sm font-black text-slate-800 dark:text-white mb-5 px-1 flex items-center gap-3 uppercase tracking-widest">
-              <div className="w-8 h-8 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
-                <Wallet size={16} />
-              </div>
-              <span>Extrato Mensal</span>
-            </h3>
+            <div className="flex items-center justify-between mb-5 px-1">
+                <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-3 uppercase tracking-widest">
+                  <div className="w-8 h-8 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
+                    <Wallet size={16} />
+                  </div>
+                  <span>Extrato Mensal</span>
+                </h3>
+                {isRefreshing && <span className="text-[10px] font-black text-accent animate-pulse uppercase tracking-widest">Sincronizando...</span>}
+            </div>
             <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
               {monthTransactions.length > 0 ? (
                 monthTransactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((t, idx) => (
@@ -140,6 +156,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           <p className="text-base font-bold text-slate-800 dark:text-slate-200 truncate pr-2">{t.description}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-tighter">
                             {new Date(t.date).toLocaleDateString(locale, {day: '2-digit', month: 'long'})}
+                            {t.accountId && savingsAccountIds.has(t.accountId) && <span className="ml-2 px-1.5 py-0.5 bg-accent/10 text-accent rounded text-[8px] font-black">APORTE</span>}
                           </p>
                         </div>
                       </div>
@@ -147,7 +164,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                         {formatValue(t.amount)}
                       </span>
                     </button>
-                    {/* Inject an ad between list items for every 10 transactions */}
                     {!isPremium && idx > 0 && idx % 10 === 0 && (
                       <div className="p-4 border-b border-slate-50 dark:border-slate-800/50">
                         <AdBanner format="horizontal" minHeight="60px" />
